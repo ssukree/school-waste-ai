@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>กล้อง AI คัดแยกขยะ</title>
+<link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;700;800&display=swap" rel="stylesheet">
+<style>
+  :root { --ink: #1c2430; --bg: #f7f6f1; --general: #2b5aa8; --recycle: #f2c200; --food: #2e9e6b; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font-family: Sarabun, sans-serif; }
+  header { background: #fff; padding: 14px 24px; font-size: 22px; font-weight: 700; display: flex; justify-content: space-between; }
+  #status { color: #6b7280; font-weight: 400; }
+  main { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; padding: 20px 24px; }
+  #cam { background: #3a4350; border-radius: 14px; display: flex; align-items: center; justify-content: center; min-height: 360px; overflow: hidden; }
+  #cam canvas { width: 100%; height: auto; }
+  #result { background: #fff; border: 4px solid #d1d5db; border-radius: 14px; padding: 24px; display: flex; flex-direction: column; justify-content: center; }
+  #bin { font-size: 64px; font-weight: 800; line-height: 1.1; }
+  #conf { font-size: 22px; color: #6b7280; margin-top: 8px; }
+  #tip { margin-top: 20px; background: var(--ink); color: #fff; border-radius: 12px; padding: 16px 20px; font-size: 28px; font-weight: 700; display: none; }
+  #poster { margin-top: 20px; font-size: 24px; line-height: 1.6; display: none; }
+  button { font-family: inherit; font-size: 28px; font-weight: 700; padding: 16px 32px; border: 0; border-radius: 12px; background: var(--ink); color: #fff; cursor: pointer; }
+  @media (max-width: 720px) { main { grid-template-columns: 1fr; } #bin { font-size: 48px; } }
+</style>
+</head>
+<body>
+<header>กล้อง AI คัดแยกขยะ <span id="status">ยังไม่เริ่ม</span></header>
+<main>
+  <div id="cam"><button id="start">เริ่มใช้งานกล้อง</button></div>
+  <div id="result">
+    <div id="bin">—</div>
+    <div id="conf">ยื่นขยะให้กล้องเห็นชัด ๆ</div>
+    <div id="tip">ก่อนทิ้ง: เทน้ำและเศษอาหารออกก่อน</div>
+    <div id="poster">ไม่แน่ใจ ลองทำตาม 3 ขั้น:<br>1. เทน้ำออก<br>2. เทเศษอาหารลงถังเศษอาหาร<br>3. ทิ้งภาชนะลงถังรีไซเคิล</div>
+  </div>
+</main>
+<!-- ไลบรารีจาก Teachable Machine (ตามโค้ดตัวอย่างในหน้า Export Model) -->
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@1.3.1/dist/tf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8.3/dist/teachablemachine-image.min.js"></script>
+<script>
+// 1) ใส่ลิงก์ที่ได้จาก Export Model → TensorFlow.js → Upload my model
+const MODEL_URL = "https://teachablemachine.withgoogle.com/models/YOUR-MODEL-ID/";
+// 2) กฎแปลงผลการจำแนกเป็นคำแนะนำ (ชื่อคลาสต้องตรงกับที่ตั้งไว้ใน Teachable Machine)
+const BINS = {
+  "General":    { name: "ถังทั่วไป",    color: "var(--general)", tip: false },
+  "Recycle":    { name: "ถังรีไซเคิล",  color: "var(--recycle)", tip: true },
+  "Food Waste": { name: "ถังเศษอาหาร", color: "var(--food)",    tip: false },
+};
+const MIN_CONFIDENCE = 0.70;   // ต่ำกว่านี้ถือว่าไม่แน่ใจ → แสดงโปสเตอร์ 3 ขั้น
+
+let model, webcam;
+const $ = (id) => document.getElementById(id);
+
+$("start").onclick = async () => {
+  $("status").textContent = "กำลังโหลดแบบจำลอง…";
+  model = await tmImage.load(MODEL_URL + "model.json", MODEL_URL + "metadata.json");
+  webcam = new tmImage.Webcam(400, 400, false);  // กว้าง, สูง, ไม่กลับด้านภาพ (กล้องหลัง)
+  await webcam.setup({ facingMode: "environment" });   // ใช้กล้องหลังของแท็บเล็ต
+  await webcam.play();
+  $("cam").replaceChildren(webcam.canvas);
+  $("status").textContent = "กำลังทำงาน";
+  requestAnimationFrame(loop);
+};
+
+async function loop() {
+  webcam.update();
+  const preds = await model.predict(webcam.canvas);
+  const best = preds.reduce((a, b) => (b.probability > a.probability ? b : a));
+  show(best);
+  requestAnimationFrame(loop);
+}
+
+function show(best) {
+  const bin = BINS[best.className];
+  const sure = bin && best.probability >= MIN_CONFIDENCE;
+  $("bin").textContent = sure ? bin.name : "ไม่แน่ใจ";
+  $("result").style.borderColor = sure ? bin.color : "#d1d5db";
+  $("conf").textContent = "ความมั่นใจ " + Math.round(best.probability * 100) + "%";
+  $("tip").style.display = sure && bin.tip ? "block" : "none";
+  $("poster").style.display = sure ? "none" : "block";
+}
+</script>
+</body>
+</html>
